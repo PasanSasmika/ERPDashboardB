@@ -13,6 +13,7 @@ import Customerrouter from './routes/Customer.js';
 import ResourcesRouter from './routes/Resources.js';
 import Organizationrouter from './routes/OrganizationRoute.js';
 import searchrouter from './routes/Search.js';
+import Invoicerouter from './routes/InvoiceRoute.js';
 
 dotenv.config();
 
@@ -54,8 +55,12 @@ app.use("/api/customers", Customerrouter);
 app.use("/api/resources", ResourcesRouter);
 app.use("/api/organizations", Organizationrouter);
 app.use("/api/search", searchrouter);
-
-app.listen(
+if (Invoicerouter) {
+  app.use("/api/invoices", Invoicerouter.default || Invoicerouter);
+  console.log('Invoice routes mounted successfully');
+} else {
+  console.error('Invoice routes NOT mounted - check file path/syntax');
+}app.listen(
   5000,
   ()=>{
     console.log('Server is running on port 5000');
