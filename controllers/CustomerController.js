@@ -47,7 +47,7 @@ export const updateCustomer = async (req, res) => {
     res.status(200).json({ message: 'Customer updated successfully.', customer: updatedCustomer });
   } catch (error) {
     res.status(400).json({ message: 'Failed to update customer.', error: error.message });
-  }
+  }   
 };
 
 // Delete a customer
