@@ -14,6 +14,9 @@ import ResourcesRouter from './routes/Resources.js';
 import Organizationrouter from './routes/OrganizationRoute.js';
 import searchrouter from './routes/Search.js';
 import Invoicerouter from './routes/InvoiceRoute.js';
+import TaxRaterouter from './routes/TaxRateRoute.js';
+import ChartAccountrouter from './routes/ChartOfAccountRoute.js';
+import Expencesrouter from './routes/ExpenseRoute.js';
 
 dotenv.config();
 
@@ -54,6 +57,9 @@ app.use("/api/projects", Projectrouter);
 app.use("/api/customers", Customerrouter);
 app.use("/api/resources", ResourcesRouter);
 app.use("/api/organizations", Organizationrouter);
+app.use("/api/finance/accounts", ChartAccountrouter);
+app.use("/api/finance/tax-rates", TaxRaterouter);
+app.use("/api/finance/expenses", Expencesrouter);
 app.use("/api/search", searchrouter);
 if (Invoicerouter) {
   app.use("/api/invoices", Invoicerouter.default || Invoicerouter);

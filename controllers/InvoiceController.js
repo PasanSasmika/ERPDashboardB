@@ -1,6 +1,14 @@
-// controllers/InvoiceController.js (updated with ObjectId fix for query)
+import ChartOfAccount from "../models/ChartOfAccounts.js";
 import Invoice from "../models/Invoice.js";
 import mongoose from 'mongoose';
+import JournalEntry from "../models/JournalEntry.js";
+
+
+const getAccountByCode = async (code) => {
+  const account = await ChartOfAccount.findOne({ code });
+  if (!account) throw new Error(`Account with code ${code} not found in Chart of Accounts.`);
+  return account._id;
+};
 
 const validateInvoiceData = (data) => {
     if (!data.invoiceNo || !data.organizationId || !data.projectId || !data.dueDate) {
@@ -12,24 +20,69 @@ const validateInvoiceData = (data) => {
 };
 
 export const createInvoice = async (req, res) => {
+    const session = await mongoose.startSession(); 
+    session.startTransaction();
+
     try {
-        console.log('createInvoice called with body:', req.body); // Debug log
-        validateInvoiceData(req.body);
+        console.log('createInvoice called with body:', req.body);
 
         const newInvoice = new Invoice(req.body);
-        await newInvoice.save();
+        await newInvoice.save({ session });
 
+        
+        const totalAmount = newInvoice.total;      
+        const taxAmount = newInvoice.taxAmount;    
+        const subTotal = newInvoice.subTotal - newInvoice.discount; 
+
+   
+        const arAccountId = await getAccountByCode('1200');    
+        const salesAccountId = await getAccountByCode('4000'); 
+        const taxAccountId = await getAccountByCode('2100');   
+
+        const journalEntry = new JournalEntry({
+            date: newInvoice.invoiceDate,
+            description: `Invoice #${newInvoice.invoiceNo} generated for Project ${newInvoice.projectId}`,
+            reference: newInvoice.invoiceNo,
+            relatedInvoice: newInvoice._id,
+            relatedProject: newInvoice.projectId, 
+            entries: [
+                {
+                    account: arAccountId,
+                    debit: totalAmount,
+                    credit: 0
+                },
+                {
+                    account: salesAccountId,
+                    debit: 0,
+                    credit: subTotal
+                },
+                {
+                    account: taxAccountId,
+                    debit: 0,
+                    credit: taxAmount
+                }
+            ],
+            status: 'Posted'
+        });
+
+        await journalEntry.save({ session });
+        
+        await session.commitTransaction();
         res.status(201).json({
-            message: 'Invoice created successfully.',
+            message: 'Invoice created and posted to GL successfully.',
             invoice: newInvoice,
         });
+
     } catch (error) {
-        console.error('createInvoice error:', error); // Debug log
+        await session.abortTransaction();
+        console.error('createInvoice error:', error);
         const statusCode = error.code === 11000 ? 409 : 400; 
         res.status(statusCode).json({
             message: 'Failed to create invoice.',
             error: error.message,
         });
+    } finally {
+        session.endSession();
     }
 };
 
@@ -49,7 +102,7 @@ export const getInvoiceById = async (req, res) => {
 export const getInvoicesByProject = async (req, res) => {
     try {
         const { orgId, projectId } = req.params;
-        console.log('getInvoicesByProject called with orgId:', orgId, 'projectId:', projectId); // Debug log
+        console.log('getInvoicesByProject called with orgId:', orgId, 'projectId:', projectId);
         const invoices = await Invoice.find({ 
             organizationId: new mongoose.Types.ObjectId(orgId), 
             projectId: projectId 
