@@ -1,7 +1,6 @@
-
+import Expense from "../models/Expense.js";
+import JournalEntry from "../models/JournalEntry.js";
 import mongoose from 'mongoose';
-import JournalEntry from '../models/JournalEntry.js';
-import Expense from '../models/Expense.js';
 
 export const createExpense = async (req, res) => {
   const session = await mongoose.startSession();
@@ -14,9 +13,20 @@ export const createExpense = async (req, res) => {
       expenseAccount, paymentAccount, relatedProject 
     } = req.body;
 
+    // 1. Validation: Ensure Accounts are selected
+    if (!expenseAccount || !paymentAccount) {
+      throw new Error("Expense Account and Payment Account are required.");
+    }
+
+    // 2. Create the Expense Record
     const newExpense = new Expense(req.body);
     await newExpense.save({ session });
 
+    // 3. AUTOMATIC GL POSTING
+    // ---------------------------------------------------------
+    // FIX: We use 'totalAmount' for the Expense Debit to ensure it matches the Bank Credit.
+    // This keeps the GL balanced (Total Debit = Total Credit).
+    // The breakdown of Tax vs Amount is preserved in the 'Expense' document for tax reporting.
     
     const journalEntry = new JournalEntry({
       date: date || new Date(),
@@ -25,12 +35,12 @@ export const createExpense = async (req, res) => {
       relatedProject: relatedProject,
       entries: [
         {
-          account: expenseAccount, 
-          debit: amount,
+          account: expenseAccount, // e.g., "Office Rent"
+          debit: totalAmount,      // <--- CHANGED: Use Total (Amount + Tax) to balance
           credit: 0
         },
         {
-          account: paymentAccount, 
+          account: paymentAccount, // e.g., "Bank"
           debit: 0,
           credit: totalAmount 
         }
@@ -38,19 +48,15 @@ export const createExpense = async (req, res) => {
       status: 'Posted'
     });
 
-    
-    if (taxAmount > 0) {
-       
-    }
-
     await journalEntry.save({ session });
-    
+    // ---------------------------------------------------------
 
     await session.commitTransaction();
-    res.status(201).json({ message: 'Expense recorded and posted to GL.', expense: newExpense });
+    res.status(201).json({ message: 'Expense recorded successfully.', expense: newExpense });
 
   } catch (error) {
     await session.abortTransaction();
+    console.error("Expense Error:", error); // Check your VS Code Terminal for this log
     res.status(400).json({ message: 'Failed to record expense', error: error.message });
   } finally {
     session.endSession();

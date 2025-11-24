@@ -17,6 +17,8 @@ import Invoicerouter from './routes/InvoiceRoute.js';
 import TaxRaterouter from './routes/TaxRateRoute.js';
 import ChartAccountrouter from './routes/ChartOfAccountRoute.js';
 import Expencesrouter from './routes/ExpenseRoute.js';
+import Payrollrouter from './routes/PayrollRoute.js';
+import Reportrouter from './routes/ReportRoute.js';
 
 dotenv.config();
 
@@ -60,6 +62,8 @@ app.use("/api/organizations", Organizationrouter);
 app.use("/api/finance/accounts", ChartAccountrouter);
 app.use("/api/finance/tax-rates", TaxRaterouter);
 app.use("/api/finance/expenses", Expencesrouter);
+app.use("/api/hr", Payrollrouter);
+app.use("/api/finance/reports", Reportrouter);
 app.use("/api/search", searchrouter);
 if (Invoicerouter) {
   app.use("/api/invoices", Invoicerouter.default || Invoicerouter);
