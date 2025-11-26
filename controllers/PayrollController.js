@@ -1,125 +1,96 @@
 import Employee from "../models/Employee.js";
-import Payroll from "../models/Payroll.js";
-import JournalEntry from "../models/JournalEntry.js";
-import ChartOfAccount from "../models/ChartOfAccounts.js";
-import mongoose from 'mongoose';
+import FinanceRecord from "../models/FinanceRecord.js";
 
-const getAccountByCode = async (code) => {
-  const account = await ChartOfAccount.findOne({ code });
-  if (!account) throw new Error(`GL Account ${code} missing.`);
-  return account._id;
-};
 
-export const runPayroll = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
+export const createEmployee = async (req, res) => {
   try {
-    const { month, year } = req.body;
-
-    const employees = await Employee.find({ isActive: true });
-    if (employees.length === 0) throw new Error("No active employees found.");
-
-    let totalGross = 0;
-    let totalTax = 0;
-    let totalNet = 0;
-    const payrollRecords = [];
-
-   
-    for (const emp of employees) {
-        const gross = emp.basicSalary + emp.allowances;
-        
-      
-        const tax = gross * 0.08; 
-        
-        const net = gross - tax;
-
-        totalGross += gross;
-        totalTax += tax;
-        totalNet += net;
-
-        payrollRecords.push({
-            employee: emp._id,
-            basic: emp.basicSalary,
-            allowance: emp.allowances,
-            tax: tax,
-            netPay: net
-        });
+    // 1. Parse the JSON string containing all text data
+    // The frontend now sends everything in 'employeeData'
+    let employeeData;
+    try {
+        employeeData = JSON.parse(req.body.employeeData);
+    } catch (e) {
+        return res.status(400).json({ message: "Invalid data format. JSON parse failed." });
     }
 
+    // 2. Handle Files (Map paths to the nested documents object)
+    employeeData.documents = {};
     
-    const newPayroll = new Payroll({
-        month,
-        year,
-        totalGross,
-        totalDeductions: totalTax,
-        totalNetPay: totalNet,
-        records: payrollRecords,
-        status: 'Processed'
-    });
-    await newPayroll.save({ session });
+    if (req.files) {
+        // Helper to clean path (remove backslashes for Windows compatibility)
+        const getPath = (fileArray) => fileArray ? `/${fileArray[0].path.replace(/\\/g, '/')}` : null;
 
-  
-    const salaryExpenseId = await getAccountByCode('5000'); 
-    const taxPayableId = await getAccountByCode('2100');    
-    const bankId = await getAccountByCode('1001');          
+        if (req.files.profilePhoto) employeeData.documents.profilePhoto = getPath(req.files.profilePhoto);
+        if (req.files.nicScan) employeeData.documents.nicScan = getPath(req.files.nicScan);
+        if (req.files.cv) employeeData.documents.cv = getPath(req.files.cv);
+        if (req.files.appointmentLetter) employeeData.documents.appointmentLetter = getPath(req.files.appointmentLetter);
+    }
 
-    const journalEntry = new JournalEntry({
-        date: new Date(),
-        description: `Payroll Run: ${month} ${year}`,
-        reference: `PAY-${month}-${year}`,
-        entries: [
-            
-            {
-                account: salaryExpenseId,
-                debit: totalGross,
-                credit: 0
-            },
-            
-            {
-                account: taxPayableId,
-                debit: 0,
-                credit: totalTax
-            },
-            
-            {
-                account: bankId,
-                debit: 0,
-                credit: totalNet
-            }
-        ],
-        status: 'Posted'
-    });
+    // 3. Save to Database
+    const newEmployee = new Employee(employeeData);
+    await newEmployee.save();
     
-    await journalEntry.save({ session });
-
-    await session.commitTransaction();
-    res.status(201).json({ message: 'Payroll processed and posted to GL.', payroll: newPayroll });
+    res.status(201).json({ message: "Employee added successfully", employee: newEmployee });
 
   } catch (error) {
-    await session.abortTransaction();
-    console.error(error);
-    res.status(400).json({ message: 'Payroll failed', error: error.message });
-  } finally {
-    session.endSession();
+    console.error("Create Employee Error:", error);
+    res.status(400).json({ message: "Failed to add employee", error: error.message });
   }
 };
 
-export const createEmployee = async (req, res) => {
-    try {
-        const emp = new Employee(req.body);
-        await emp.save();
-        res.status(201).json(emp);
-    } catch (err) {
-        res.status(400).json({ error: err.message });
-    }
+export const getEmployees = async (req, res) => {
+  try {
+    const employees = await Employee.find({ isActive: true }).sort({ createdAt: -1 });
+    res.status(200).json(employees);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch employees", error: error.message });
+  }
 };
 
-export const getEmployees = async (req, res) => {
-    try {
-        const emps = await Employee.find();
-        res.json(emps);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+export const getEmployeeById = async (req, res) => {
+  try {
+    const employee = await Employee.findById(req.params.id);
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+    res.status(200).json(employee);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch employee", error: error.message });
+  }
+};
+
+
+export const processSalary = async (req, res) => {
+  try {
+    const { employeeId, month, amount, authorizedBy } = req.body;
+
+    const employee = await Employee.findById(employeeId);
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+
+    const financeEntry = new FinanceRecord({
+      date: new Date(),
+      description: `Salary Payment: ${employee.name} (${month})`,
+      amount: Number(amount),
+      type: 'Outgoing',
+      category: 'Payroll',
+      relatedEmployee: employee._id,
+      authorizedBy: authorizedBy
+    });
+    await financeEntry.save();
+
+    employee.salaryHistory.push({
+      month,
+      amount: Number(amount),
+      processedDate: new Date(),
+      authorizedBy
+    });
+    await employee.save();
+
+    res.status(200).json({ 
+      message: "Salary processed successfully", 
+      financeRecord: financeEntry 
+    });
+
+  } catch (error) {
+    console.error("Payroll Error:", error);
+    res.status(500).json({ message: "Payroll processing failed", error: error.message });
+  }
 };
