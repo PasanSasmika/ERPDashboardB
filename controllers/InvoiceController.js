@@ -1,14 +1,8 @@
-import ChartOfAccount from "../models/ChartOfAccounts.js";
 import Invoice from "../models/Invoice.js";
 import mongoose from 'mongoose';
-import JournalEntry from "../models/JournalEntry.js";
 
 
-const getAccountByCode = async (code) => {
-  const account = await ChartOfAccount.findOne({ code });
-  if (!account) throw new Error(`Account with code ${code} not found in Chart of Accounts.`);
-  return account._id;
-};
+
 
 const validateInvoiceData = (data) => {
     if (!data.invoiceNo || !data.organizationId || !data.projectId || !data.dueDate) {
@@ -20,72 +14,42 @@ const validateInvoiceData = (data) => {
 };
 
 export const createInvoice = async (req, res) => {
-    const session = await mongoose.startSession(); 
-    session.startTransaction();
-
     try {
-        console.log('createInvoice called with body:', req.body);
+        // 1. Simple Validation
+        if (!req.body.invoiceNo || !req.body.total) {
+            return res.status(400).json({ message: "Missing invoice number or total." });
+        }
 
+        // 2. Create the Invoice
         const newInvoice = new Invoice(req.body);
-        await newInvoice.save({ session });
+        await newInvoice.save();
 
-        
-        const totalAmount = newInvoice.total;      
-        const taxAmount = newInvoice.taxAmount;    
-        const subTotal = newInvoice.subTotal - newInvoice.discount; 
-
-   
-        const arAccountId = await getAccountByCode('1200');    
-        const salesAccountId = await getAccountByCode('4000'); 
-        const taxAccountId = await getAccountByCode('2100');   
-
-        const journalEntry = new JournalEntry({
+        // OPTIONAL: If you want this to immediately show as "Income" in your Finance Dashboard:
+        /*
+        const incomeRecord = new FinanceRecord({
             date: newInvoice.invoiceDate,
-            description: `Invoice #${newInvoice.invoiceNo} generated for Project ${newInvoice.projectId}`,
-            reference: newInvoice.invoiceNo,
-            relatedInvoice: newInvoice._id,
-            relatedProject: newInvoice.projectId, 
-            entries: [
-                {
-                    account: arAccountId,
-                    debit: totalAmount,
-                    credit: 0
-                },
-                {
-                    account: salesAccountId,
-                    debit: 0,
-                    credit: subTotal
-                },
-                {
-                    account: taxAccountId,
-                    debit: 0,
-                    credit: taxAmount
-                }
-            ],
-            status: 'Posted'
+            description: `Invoice #${newInvoice.invoiceNo} - ${newInvoice.projectId}`,
+            amount: newInvoice.total,
+            type: 'Incoming',
+            category: 'Project Revenue'
         });
+        await incomeRecord.save();
+        */
 
-        await journalEntry.save({ session });
-        
-        await session.commitTransaction();
         res.status(201).json({
-            message: 'Invoice created and posted to GL successfully.',
+            message: 'Invoice created successfully.',
             invoice: newInvoice,
         });
 
     } catch (error) {
-        await session.abortTransaction();
         console.error('createInvoice error:', error);
         const statusCode = error.code === 11000 ? 409 : 400; 
         res.status(statusCode).json({
             message: 'Failed to create invoice.',
             error: error.message,
         });
-    } finally {
-        session.endSession();
     }
 };
-
 export const getInvoiceById = async (req, res) => {
     try {
         const invoice = await Invoice.findById(req.params.id).populate('organizationId');
